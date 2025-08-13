@@ -1,513 +1,186 @@
-// ===============================
-// Helper & State
-// ===============================
-const STORAGE_KEY = "budgetApp";
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Dein Budget</title>
 
-const defaultState = {
-  userName: "",
-  totalBudget: 0,
-  spentAmount: 0,
-  transactions: [],
-  categories: [],
-  payday: null,              // 1..28
-  archive: [],
-  currentTheme: "standard",
-  seenInfo: false,
-  seenCatInfo: false
-};
+  <!-- Schrift -->
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
 
-let state = { ...defaultState };
+  <!-- Styles -->
+  <link href="styles.css" rel="stylesheet" />
 
-const quotes = [
-  "Spare in der Zeit, dann hast du in der Not.",
-  "Kleine Ausgaben summieren sich schnell.",
-  "Ein Budget gibt dir Freiheit, nicht Einschränkung.",
-  "Heute sparen, morgen genießen.",
-  "Dein Geld arbeitet für dich, wenn du es lässt."
-];
+  <!-- Libs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.0.1/docx.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+</head>
+<body class="theme-standard">
 
-const fmtCHF = new Intl.NumberFormat("de-CH", { style: "currency", currency: "CHF", minimumFractionDigits: 2 });
+  <!-- Safe area for Dynamic Island / Notch (weiß hinterlegt) -->
+  <div class="safe-area"></div>
 
-// Load from localStorage
-function loadState() {
-  try {
-    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-    state = { ...defaultState, ...data };
-  } catch {
-    state = { ...defaultState };
-  }
-}
+  <!-- Hamburger-Menü -->
+  <button id="menuButton" class="hamburger-btn" aria-label="Menü öffnen" type="button">☰</button>
 
-// Save to localStorage
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
+  <!-- Overlay-Menü -->
+  <div id="menuOverlay" class="menu-overlay" aria-hidden="true">
+    <div id="menuBackdrop" class="menu-backdrop" aria-hidden="true"></div>
+    <nav class="menu-content" aria-label="Seitennavigation">
+      <button id="closeMenu" class="close-menu" aria-label="Menü schließen" type="button">✕</button>
+      <button class="menu-item" data-tab="budget" type="button">Budget</button>
+      <button class="menu-item" data-tab="listing" type="button">Auflistung</button>
+      <button class="menu-item" data-tab="history" type="button">Verlauf</button>
+      <button class="menu-item" data-tab="categories" type="button">Kategorien</button>
+      <button class="menu-item" data-tab="archive" type="button">Archiv</button>
+      <button class="menu-item" data-tab="settings" type="button">Einstellungen</button>
+    </nav>
+  </div>
 
-// ===============================
-// DOM
-// ===============================
-const greetingEl = document.getElementById("greeting");
-const monthTextEl = document.getElementById("monthText");
-const currentDateEl = document.getElementById("currentDate");
-const quoteEl = document.getElementById("quote");
-const spentEl = document.getElementById("spent");
-const remainingEl = document.getElementById("remaining");
-const txCategoryEl = document.getElementById("txCategory");
-const txDescEl = document.getElementById("txDesc");
-const txAmountEl = document.getElementById("txAmount");
-const addTxBtn = document.getElementById("addTx");
-const totalBudgetEl = document.getElementById("totalBudget");
-const saveBudgetBtn = document.getElementById("saveBudget");
-const historyListEl = document.getElementById("historyList");
-const transactionListEl = document.getElementById("transactionList");
-const categoriesListEl = document.getElementById("categoriesList");
-const newCategoryNameEl = document.getElementById("newCategoryName");
-const addCategoryBtn = document.getElementById("addCategory");
-const archiveListEl = document.getElementById("archiveList");
-const categoryChartEl = document.getElementById("categoryChart");
+  <!-- Header -->
+  <header class="panel header-panel">
+    <h1 id="greeting">Hallo</h1>
+    <h2>Dein Budget für <span id="monthText"></span></h2>
+    <p id="currentDate" class="muted"></p>
+    <p id="quote" class="quote"></p>
+  </header>
 
-// Menu
-const menuButton = document.getElementById("menuButton");
-const menuOverlay = document.getElementById("menuOverlay");
-const closeMenuBtn = document.getElementById("closeMenu");
-const menuBackdrop = document.getElementById("menuBackdrop");
-const menuItems = document.querySelectorAll(".menu-item");
+  <!-- Tabs -->
+  <main id="appMain">
+    <!-- TAB: Budget -->
+    <section id="tab-budget" class="tab active">
+      <div class="panel">
+        <label for="totalBudget">Gesamtbudget festlegen (CHF):</label>
+        <div class="input-row">
+          <input type="number" id="totalBudget" placeholder="z. B. 2000" inputmode="decimal" />
+          <button id="saveBudget" class="btn btn-primary" type="button">Speichern</button>
+        </div>
+      </div>
 
-// Modals
-const welcomeModal = document.getElementById("welcomeModal");
-const saveNameBtn = document.getElementById("saveName");
-const userNameInput = document.getElementById("userName");
-const infoModal = document.getElementById("infoModal");
-const closeInfoBtn = document.getElementById("closeInfo");
-const categoryInfoModal = document.getElementById("categoryInfoModal");
-const closeCategoryInfoBtn = document.getElementById("closeCategoryInfo");
-const paydayModal = document.getElementById("paydayModal");
-const paydaySelect = document.getElementById("paydaySelect");
-const savePaydayBtn = document.getElementById("savePayday");
+      <div class="panel">
+        <p>Ausgegeben: <span id="spent">CHF 0.00</span></p>
+        <p>Verfügbar: <span id="remaining" class="big">CHF 0.00</span></p>
+      </div>
 
-// Settings / Export
-const themeButtons = document.querySelectorAll("[data-theme-select]");
-const exportCSVBtn = document.getElementById("exportCSV");
-const exportWordBtn = document.getElementById("exportWord");
-const exportChartBtn = document.getElementById("exportChart");
+      <div class="panel">
+        <h3>Neue Ausgabe hinzufügen</h3>
+        <div class="input-row">
+          <label class="visually-hidden" for="txCategory">Kategorie</label>
+          <select id="txCategory" aria-label="Kategorie wählen"></select>
 
-// Chart
-let chartInstance = null;
+          <label class="visually-hidden" for="txDesc">Beschreibung</label>
+          <input type="text" id="txDesc" placeholder="Beschreibung" autocomplete="off" />
 
-// ===============================
-// Init
-// ===============================
-document.addEventListener("DOMContentLoaded", () => {
-  loadState();
+          <label class="visually-hidden" for="txAmount">Betrag</label>
+          <input type="number" id="txAmount" placeholder="Betrag" inputmode="decimal" />
 
-  // UI init
-  initDateAndQuote();
-  initPaydayOptions();
-  setTheme(state.currentTheme, false);
+          <button id="addTx" class="btn btn-primary" aria-label="Ausgabe hinzufügen" type="button">+</button>
+        </div>
+      </div>
+    </section>
 
-  // Restore UI values
-  if (state.userName) greetingEl.textContent = `Hallo ${state.userName}`;
-  if (state.totalBudget) totalBudgetEl.value = String(state.totalBudget);
+    <!-- TAB: Auflistung -->
+    <section id="tab-listing" class="tab">
+      <div class="panel">
+        <h3>Kategorien – Diagramm</h3>
+        <canvas id="categoryChart" aria-label="Kreisdiagramm Ausgaben nach Kategorie"></canvas>
+      </div>
+      <div class="panel">
+        <h3>Auflistung</h3>
+        <div id="historyList" class="list-panel"></div>
+      </div>
+    </section>
 
-  renderCategories();
-  renderCategorySelect();
-  renderTransactions();
-  renderHistory();
-  renderArchive();
-  updateBudgetDisplay();
-  renderChart();
+    <!-- TAB: Verlauf -->
+    <section id="tab-history" class="tab">
+      <div class="panel">
+        <h3>Verlauf</h3>
+        <div id="transactionList" class="list-panel"></div>
+      </div>
+    </section>
 
-  // Onboarding modals nur, wenn noch nicht gesetzt
-  if (!state.userName) {
-    showModal(welcomeModal);
-  } else if (!state.seenInfo) {
-    showModal(infoModal);
-  } else if (!state.seenCatInfo) {
-    showModal(categoryInfoModal);
-  } else if (!state.payday) {
-    showModal(paydayModal);
-  }
+    <!-- TAB: Kategorien -->
+    <section id="tab-categories" class="tab">
+      <div class="panel">
+        <h3>Kategorien</h3>
+        <div id="categoriesList" class="chips"></div>
+        <div class="input-row">
+          <label class="visually-hidden" for="newCategoryName">Neue Kategorie</label>
+          <input type="text" id="newCategoryName" placeholder="Neue Kategorie" autocomplete="off" />
+          <button id="addCategory" class="btn btn-primary" aria-label="Kategorie hinzufügen" type="button">+</button>
+        </div>
+      </div>
+    </section>
 
-  // Payday-Check
-  checkPayday();
-  setInterval(checkPayday, 1000 * 60 * 60); // stündlich
-});
+    <!-- TAB: Archiv -->
+    <section id="tab-archive" class="tab">
+      <div class="panel">
+        <h3>Archiv</h3>
+        <div id="archiveList" class="list-panel"></div>
+      </div>
+    </section>
 
-// ===============================
-// UI Helpers
-// ===============================
-function initDateAndQuote() {
-  const now = new Date();
-  const month = now.toLocaleString("de-DE", { month: "long" });
-  const year = now.getFullYear();
-  monthTextEl.textContent = `${month} ${year}`;
-  currentDateEl.textContent = now.toLocaleString("de-CH");
-  const quoteIndex = now.getDate() % quotes.length;
-  quoteEl.textContent = `„${quotes[quoteIndex]}”`;
-}
+    <!-- TAB: Einstellungen -->
+    <section id="tab-settings" class="tab">
+      <div class="panel">
+        <h3>Farbschema wählen</h3>
+        <div class="theme-grid">
+          <button class="theme-btn theme-swatch-standard" data-theme-select="standard" type="button">Standard</button>
+          <button class="theme-btn theme-swatch-warm" data-theme-select="warm" type="button">Warm</button>
+          <button class="theme-btn theme-swatch-kalt" data-theme-select="kalt" type="button">Kalt</button>
+          <button class="theme-btn theme-swatch-fancy" data-theme-select="fancy" type="button">Fancy</button>
+          <button class="theme-btn theme-swatch-special" data-theme-select="special" type="button">Special</button>
+          <button class="theme-btn theme-swatch-girly" data-theme-select="girly" type="button">Girly</button>
+        </div>
+      </div>
 
-function initPaydayOptions() {
-  paydaySelect.innerHTML = "";
-  for (let d = 1; d <= 28; d++) {
-    const opt = document.createElement("option");
-    opt.value = d;
-    opt.textContent = d;
-    paydaySelect.appendChild(opt);
-  }
-  if (state.payday) paydaySelect.value = state.payday;
-}
+      <div class="panel">
+        <h3>Export</h3>
+        <div class="export-grid">
+          <button id="exportCSV" class="btn btn-primary" type="button">Auflistung als CSV</button>
+          <button id="exportWord" class="btn btn-primary" type="button">Auflistung als Word</button>
+          <button id="exportChart" class="btn btn-primary" type="button">Diagramm als PNG</button>
+        </div>
+      </div>
+    </section>
+  </main>
 
-function showModal(modal) {
-  modal.setAttribute("aria-hidden", "false");
-}
-function hideModal(modal) {
-  modal.setAttribute("aria-hidden", "true");
-}
+  <!-- Modals -->
+  <div id="welcomeModal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="welcomeTitle">
+    <div class="modal-content">
+      <h3 id="welcomeTitle">Willkommen!</h3>
+      <p>Wie heisst du?</p>
+      <input type="text" id="userName" placeholder="Name" autocomplete="off" />
+      <button id="saveName" class="btn btn-primary" type="button">Speichern</button>
+    </div>
+  </div>
 
-// ===============================
-// Event Listeners — Modals
-// ===============================
-saveNameBtn.addEventListener("click", () => {
-  const name = (userNameInput.value || "").trim();
-  if (!name) return;
-  state.userName = name;
-  greetingEl.textContent = `Hallo ${name}`;
-  saveState();
-  hideModal(welcomeModal);
-  if (!state.seenInfo) {
-    showModal(infoModal);
-  } else if (!state.seenCatInfo) {
-    showModal(categoryInfoModal);
-  } else if (!state.payday) {
-    showModal(paydayModal);
-  }
-});
+  <div id="infoModal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="infoTitle">
+    <div class="modal-content">
+      <h3 id="infoTitle">Info</h3>
+      <p>Ich helfe dir, dein Budget zu planen, Ausgaben zu erfassen und den Überblick zu behalten.</p>
+      <button id="closeInfo" class="btn btn-primary" type="button">Weiter</button>
+    </div>
+  </div>
 
-closeInfoBtn.addEventListener("click", () => {
-  state.seenInfo = true;
-  saveState();
-  hideModal(infoModal);
-  if (!state.seenCatInfo) {
-    showModal(categoryInfoModal);
-  } else if (!state.payday) {
-    showModal(paydayModal);
-  }
-});
+  <div id="categoryInfoModal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="catInfoTitle">
+    <div class="modal-content">
+      <h3 id="catInfoTitle">Kategorien setzen</h3>
+      <p>Lege zuerst deine eigenen Kategorien an. Sie erscheinen dann im Budget-Reiter zur Auswahl.</p>
+      <button id="closeCategoryInfo" class="btn btn-primary" type="button">Weiter</button>
+    </div>
+  </div>
 
-closeCategoryInfoBtn.addEventListener("click", () => {
-  state.seenCatInfo = true;
-  saveState();
-  hideModal(categoryInfoModal);
-  if (!state.payday) showModal(paydayModal);
-});
+  <div id="paydayModal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="paydayTitle">
+    <div class="modal-content">
+      <h3 id="paydayTitle">Zahltag festlegen</h3>
+      <p>Wähle den Tag (1–28), an dem dein Budget automatisch archiviert und zurückgesetzt wird:</p>
+      <select id="paydaySelect" aria-label="Zahltag auswählen"></select>
+      <button id="savePayday" class="btn btn-primary" type="button">Speichern</button>
+    </div>
+  </div>
 
-savePaydayBtn.addEventListener("click", () => {
-  const d = parseInt(paydaySelect.value, 10);
-  if (!Number.isInteger(d) || d < 1 || d > 28) return;
-  state.payday = d;
-  saveState();
-  hideModal(paydayModal);
-});
-
-// ===============================
-// Budget & Transaktionen
-// ===============================
-saveBudgetBtn.addEventListener("click", () => {
-  const val = parseFloat(totalBudgetEl.value);
-  state.totalBudget = isNaN(val) ? 0 : Math.max(0, val);
-  saveState();
-  updateBudgetDisplay();
-});
-
-addTxBtn.addEventListener("click", () => {
-  const category = txCategoryEl.value;
-  const desc = (txDescEl.value || "").trim();
-  const amount = parseFloat(txAmountEl.value);
-
-  if (!category || !desc || isNaN(amount) || amount <= 0) return;
-
-  const tx = { category, desc, amount, date: new Date().toISOString() };
-  state.transactions.push(tx);
-  saveState();
-
-  txDescEl.value = "";
-  txAmountEl.value = "";
-
-  updateBudgetDisplay();
-  renderTransactions();
-  renderHistory();
-  renderChart();
-});
-
-function updateBudgetDisplay() {
-  const spent = state.transactions.reduce((sum, t) => sum + (t.amount || 0), 0);
-  state.spentAmount = spent;
-  spentEl.textContent = fmtCHF.format(spent);
-
-  const remaining = (state.totalBudget || 0) - spent;
-  remainingEl.textContent = fmtCHF.format(remaining);
-  if (remaining < 200) {
-    remainingEl.classList.add("red-alert");
-  } else {
-    remainingEl.classList.remove("red-alert");
-  }
-}
-
-// ===============================
-// Render Lists & Chart
-// ===============================
-function renderTransactions() {
-  historyListEl.innerHTML = "";
-  state.transactions.forEach(tx => {
-    const item = document.createElement("div");
-    item.className = "list-item";
-    const date = (tx.date || "").split("T")[0] || "";
-    item.textContent = `${date} | ${tx.category} - ${tx.desc}: ${fmtCHF.format(tx.amount)}`;
-    historyListEl.appendChild(item);
-  });
-}
-
-function renderHistory() {
-  transactionListEl.innerHTML = "";
-  state.transactions.forEach(tx => {
-    const item = document.createElement("div");
-    item.className = "list-item";
-    const date = (tx.date || "").split("T")[0] || "";
-    item.textContent = `${date} | ${tx.category} - ${tx.desc} : ${fmtCHF.format(tx.amount)}`;
-    transactionListEl.appendChild(item);
-  });
-}
-
-function renderChart() {
-  if (!categoryChartEl) return;
-
-  const dataByCategory = {};
-  state.transactions.forEach(tx => {
-    if (!dataByCategory[tx.category]) dataByCategory[tx.category] = 0;
-    dataByCategory[tx.category] += tx.amount;
-  });
-
-  const labels = Object.keys(dataByCategory);
-  const data = Object.values(dataByCategory);
-
-  if (chartInstance) {
-    chartInstance.destroy();
-    chartInstance = null;
-  }
-
-  if (labels.length === 0) return;
-
-  // generate pleasant colors if many categories
-  const colors = labels.map((_, i) => `hsl(${(i * 57) % 360} 70% 60%)`);
-
-  chartInstance = new Chart(categoryChartEl, {
-    type: "pie",
-    data: {
-      labels,
-      datasets: [{ data, backgroundColor: colors }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false
-    }
-  });
-}
-
-// ===============================
-// Kategorien
-// ===============================
-addCategoryBtn.addEventListener("click", () => {
-  const name = (newCategoryNameEl.value || "").trim();
-  if (!name) return;
-  if (!state.categories.includes(name)) {
-    state.categories.push(name);
-    saveState();
-    renderCategories();
-    renderCategorySelect();
-  }
-  newCategoryNameEl.value = "";
-});
-
-function renderCategories() {
-  categoriesListEl.innerHTML = "";
-  state.categories.forEach(cat => {
-    const chip = document.createElement("div");
-    chip.className = "chip";
-    chip.textContent = cat;
-    categoriesListEl.appendChild(chip);
-  });
-}
-
-function renderCategorySelect() {
-  txCategoryEl.innerHTML = "";
-  const cats = state.categories.length ? state.categories : ["Allgemein"];
-  cats.forEach(cat => {
-    const opt = document.createElement("option");
-    opt.value = cat;
-    opt.textContent = cat;
-    txCategoryEl.appendChild(opt);
-  });
-}
-
-// ===============================
-// Hamburger-Menü & Tabs
-// ===============================
-menuButton.addEventListener("click", () => {
-  menuOverlay.setAttribute("aria-hidden", "false");
-});
-closeMenuBtn.addEventListener("click", () => {
-  menuOverlay.setAttribute("aria-hidden", "true");
-});
-menuBackdrop.addEventListener("click", () => {
-  menuOverlay.setAttribute("aria-hidden", "true");
-});
-menuItems.forEach(item => {
-  item.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(tab => tab.classList.remove("active"));
-    const target = item.getAttribute("data-tab");
-    document.getElementById(`tab-${target}`).classList.add("active");
-    menuOverlay.setAttribute("aria-hidden", "true");
-  });
-});
-
-// ===============================
-// Themes (mit Klick-Highlight)
-// ===============================
-function setTheme(theme, persist = true) {
-  document.body.className = `theme-${theme}`;
-  // Selected marker
-  themeButtons.forEach(btn => {
-    const isSelected = btn.dataset.themeSelect === theme;
-    btn.setAttribute("data-selected", isSelected ? "true" : "false");
-  });
-  if (persist) {
-    state.currentTheme = theme;
-    saveState();
-  }
-}
-
-themeButtons.forEach(btn => {
-  btn.addEventListener("click", () => {
-    const theme = btn.dataset.themeSelect;
-    // kleines Klick-Highlight
-    btn.classList.add("is-pressed");
-    setTimeout(() => btn.classList.remove("is-pressed"), 180);
-    setTheme(theme, true);
-  });
-});
-
-// ===============================
-// Exports
-// ===============================
-exportCSVBtn.addEventListener("click", () => {
-  let csv = "Datum,Kategorie,Beschreibung,Betrag\n";
-  state.transactions.forEach(tx => {
-    const date = (tx.date || "").split("T")[0] || "";
-    csv += `${date},${escapeCSV(tx.category)},${escapeCSV(tx.desc)},${tx.amount.toFixed(2)}\n`;
-  });
-  downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), "auflistung.csv");
-});
-
-exportWordBtn.addEventListener("click", () => {
-  if (!window.docx) return;
-  const { Document, Packer, Paragraph, Table, TableCell, TableRow, WidthType, AlignmentType } = window.docx;
-
-  const rows = [];
-  rows.push(new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph("Datum")], width: { size: 25, type: WidthType.PERCENTAGE } }),
-      new TableCell({ children: [new Paragraph("Kategorie")], width: { size: 25, type: WidthType.PERCENTAGE } }),
-      new TableCell({ children: [new Paragraph("Beschreibung")], width: { size: 30, type: WidthType.PERCENTAGE } }),
-      new TableCell({ children: [new Paragraph("Betrag")], width: { size: 20, type: WidthType.PERCENTAGE } }),
-    ]
-  }));
-
-  state.transactions.forEach(tx => {
-    const date = (tx.date || "").split("T")[0] || "";
-    rows.push(new TableRow({
-      children: [
-        new TableCell({ children: [new Paragraph(date)] }),
-        new TableCell({ children: [new Paragraph(tx.category)] }),
-        new TableCell({ children: [new Paragraph(tx.desc)] }),
-        new TableCell({ children: [new Paragraph(tx.amount.toFixed(2))] }),
-      ]
-    }));
-  });
-
-  const doc = new Document({
-    sections: [{
-      properties: {},
-      children: [
-        new Paragraph({ text: "Auflistung", alignment: AlignmentType.CENTER }),
-        new Table({ rows })
-      ]
-    }]
-  });
-
-  Packer.toBlob(doc).then(blob => downloadBlob(blob, "auflistung.docx"));
-});
-
-exportChartBtn.addEventListener("click", () => {
-  if (!categoryChartEl) return;
-  const canvas = categoryChartEl;
-  // Ensure chart exists; if not, render then export
-  if (!chartInstance) renderChart();
-  const url = canvas.toDataURL("image/png");
-  downloadURL(url, "diagramm.png");
-});
-
-function escapeCSV(s) {
-  if (s == null) return "";
-  const str = String(s);
-  return /[",\n;]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-}
-
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  downloadURL(url, filename);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function downloadURL(url, filename) {
-  const a = document.createElement("a");
-  a.href = url; a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
-
-// ===============================
-// Archivierung (Payday)
-// ===============================
-function checkPayday() {
-  const today = new Date().getDate();
-  if (state.payday && today === Number(state.payday)) {
-    if (state.transactions.length > 0) {
-      state.archive.push({
-        date: new Date().toISOString(),
-        transactions: [...state.transactions],
-        totalBudget: state.totalBudget,
-        spentAmount: state.spentAmount
-      });
-      state.transactions = [];
-      state.spentAmount = 0;
-      saveState();
-      updateBudgetDisplay();
-      renderTransactions();
-      renderHistory();
-      renderChart();
-      renderArchive();
-    }
-  }
-}
-
-function renderArchive() {
-  archiveListEl.innerHTML = "";
-  state.archive.forEach(entry => {
-    const item = document.createElement("div");
-    item.className = "list-item";
-    const date = (entry.date || "").split("T")[0] || "";
-    item.textContent = `${date} - ${entry.transactions.length} Transaktionen`;
-    archiveListEl.appendChild(item);
-  });
-}
+  <!-- Scripts -->
+  <script src="app.js" defer></script>
+</body>
+</html>
